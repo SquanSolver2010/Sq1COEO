@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Square-1 Speed Trainer</title>
+<style>
+:root{--bg:#101116;--panel:#1b1d27;--panel2:#252735;--accent:#a78bfa;--green:#22c55e;--red:#ef4444;--muted:#a1a1b3}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#f5f5f7;font-family:Arial,sans-serif}
+header{text-align:center;padding:22px;background:#191b24;border-bottom:1px solid #303240}
+header h1{margin:0;font-size:27px}header h1 span{color:var(--accent)}header p{margin:8px 0 0;color:var(--muted)}
+main{max-width:850px;margin:auto;padding:18px}
+.panel{background:var(--panel);border:1px solid #303240;border-radius:16px;padding:20px;margin-bottom:16px}
+h2{font-size:18px;color:var(--accent);margin:0 0 16px}
+button{border:0;border-radius:9px;padding:12px 16px;background:var(--panel2);color:white;font-size:14px;cursor:pointer;margin:4px}
+button:hover{filter:brightness(1.18)}button:disabled{opacity:.45;cursor:not-allowed}
+.primary{background:#7653c8}.danger{background:#922f3a}.active{background:#7653c8}
+.modes{display:flex;gap:10px;margin-bottom:16px}.modes button{flex:1;font-weight:bold;padding:15px}
+.scramble{background:#11131a;border-radius:12px;padding:20px;min-height:88px;text-align:center;font-size:23px;font-weight:bold;line-height:1.8;overflow-wrap:anywhere}
+.center{text-align:center}
+.timer{font-size:clamp(64px,15vw,105px);font-weight:bold;font-variant-numeric:tabular-nums;line-height:1.2;margin:14px 0;color:white}
+.timer.ready{color:var(--green)}.timer.holding{color:var(--red)}
+.status{font-size:13px;letter-spacing:2px;font-weight:bold;color:var(--muted);min-height:18px}
+.muted{color:var(--muted);font-size:12px;line-height:1.65}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+.stat{background:var(--panel2);border-radius:10px;padding:14px 5px;text-align:center}
+.stat strong{display:block;font-size:21px;margin-bottom:5px}.stat small{color:var(--muted)}
+.controls{display:flex;justify-content:center;flex-wrap:wrap;gap:5px}
+.history-item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 4px;border-bottom:1px solid #303240;font-size:14px}
+.history-item small{display:block;color:var(--muted);font-size:11px;margin-top:5px;overflow-wrap:anywhere}
+.history-item button{padding:7px 10px}
+.empty{text-align:center;color:var(--muted);padding:20px}
+.footer{text-align:center;color:var(--muted);font-size:12px;padding:18px}
+@media(max-width:550px){main{padding:11px}.panel{padding:15px}.stats{grid-template-columns:repeat(2,1fr)}.scramble{font-size:19px}}
+</style>
+</head>
+<body>
+<header><h1>Square-1 <span>Speed Trainer</span></h1><p>CO &amp; EO practice · Physical cube timer</p></header>
+<main>
+  <div class="modes">
+    <button id="coBtn" class="active" type="button">CO TRAINING</button>
+    <button id="eoBtn" type="button">EO TRAINING</button>
+  </div>
+
+  <section class="panel">
+    <h2 id="modeTitle">Corner Orientation</h2>
+    <div class="scramble" id="scramble">Generating scramble…</div>
+    <div class="controls">
+      <button class="primary" id="newScrambleBtn" type="button">New Scramble</button>
+      <button id="copyBtn" type="button">Copy Scramble</button>
+    </div>
+    <p class="muted center">Standard Square-1 notation: (top,bottom) /</p>
+  </section>
+
+  <section class="panel">
+    <h2>Speedcubing timer</h2>
+    <div class="center">
+      <div class="status" id="timerStatus">READY</div>
+      <div class="timer" id="timer">0.00</div>
+      <div class="muted" id="inspectionDisplay" aria-live="polite"></div>
+      <div class="controls">
+        <button class="primary" id="inspectionBtn" type="button">Start 15s Inspection</button>
+        <button id="resetBtn" type="button">Reset Timer</button>
+      </div>
+      <p class="muted">Keyboard: hold Space until green, then release to start. Press Space again to stop. During inspection, press Space to start the solve. On touch devices, use the buttons.</p>
+    </div>
+    <div class="controls">
+      <button id="plusTwoBtn" type="button">Add +2 to last solve</button>
+      <button class="danger" id="dnfBtn" type="button">Mark last solve DNF</button>
+      <button id="clearPenaltyBtn" type="button">Remove penalty</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 id="statsTitle">CO Statistics</h2>
+    <div class="stats">
+      <div class="stat"><strong id="count">0</strong><small>Solves</small></div>
+      <div class="stat"><strong id="best">-</strong><small>Best</small></div>
+      <div class="stat"><strong id="ao5">-</strong><small>Average of 5</small></div>
+      <div class="stat"><strong id="ao12">-</strong><small>Average of 12</small></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Solve history</h2>
+    <div id="history"><div class="empty">No solves yet.</div></div>
+    <div class="center"><button class="danger" id="clearHistoryBtn" type="button">Clear current mode history</button></div>
+  </section>
+</main>
+<div class="footer">Your solve history is stored locally in this browser.</div>
+
+<script>
+"use strict";
+const STORAGE_KEY = "square1_speed_trainer_v2";
+let records = [];
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  if (Array.isArray(saved)) records = saved;
+} catch (_) { records = []; }
+
+let mode = "CO";
+let scrambleText = "";
+let running = false;
+let inspecting = false;
+let holding = false;
+let ready = false;
+let startTime = 0;
+let elapsed = 0;
+let inspectionStart = 0;
+let inspectionElapsed = 0;
+let inspectionPenalty = "NONE";
+let timerInterval = null;
+let inspectionInterval = null;
+let holdTimeout = null;
+
+const $ = id => document.getElementById(id);
+function saveRecords() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
+  catch (_) { setStatus("Could not save history", "#ef4444"); }
+}
+function setStatus(message, color) {
+  $("timerStatus").textContent = message;
+  $("timerStatus").style.color = color || "";
+}
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds)) return "DNF";
+  if (seconds >= 60) {
+    const minutes = Math.floor(seconds / 60);
+    return minutes + ":" + (seconds % 60).toFixed(2).padStart(5, "0");
+  }
+  return seconds.toFixed(2);
+}
+
+/* Legal Square-1 move-sequence generator.
+   Each array position is a 30-degree unit. Equal labels
+   indicate that two adjacent units belong to one piece. */
+function createSolvedLayer(prefix) {
+  const widths = [2,1,2,1,2,1,2,1];
+  const layer = [];
+  widths.forEach((width, i) => {
+    for (let j = 0; j < width; j++) layer.push(prefix + i);
+  });
+  return layer;
+}
+function rotateLayer(layer, amount) {
+  const shift = ((amount % 12) + 12) % 12;
+  return layer.map((_, i) => layer[(i + shift) % 12]);
+}
+function canSlash(layer) {
+  return layer[11] !== layer[0] && layer[5] !== layer[6];
+}
+function legalRotations(layer) {
+  const moves = [];
+  for (let move = -5; move <= 6; move++) {
+    if (canSlash(rotateLayer(layer, move))) moves.push(move);
+  }
+  return moves;
+}
+function slashLayers(top, bottom) {
+  return {
+    top: [...bottom.slice(0, 6), ...top.slice(6, 12)],
+    bottom: [...top.slice(0, 6), ...bottom.slice(6, 12)]
+  };
+}
+function generateScramble() {
+  let top = createSolvedLayer("T");
+  let bottom = createSolvedLayer("B");
+  const tokens = [];
+  for (let i = 0; i < 15; i++) {
+    const topOptions = legalRotations(top);
+    const bottomOptions = legalRotations(bottom);
+    if (!topOptions.length || !bottomOptions.length) {
+      throw new Error("No legal Square-1 turn found");
+    }
+    let a, b;
+    do {
+      a = topOptions[Math.floor(Math.random() * topOptions.length)];
+      b = bottomOptions[Math.floor(Math.random() * bottomOptions.length)];
+    } while (a === 0 && b === 0);
+    top = rotateLayer(top, a);
+    bottom = rotateLayer(bottom, b);
+    if (!canSlash(top) || !canSlash(bottom)) throw new Error("Illegal slash");
+    const next = slashLayers(top, bottom);
+    top = next.top;
+    bottom = next.bottom;
+    tokens.push(`(${a},${b}) /`);
+  }
+  return tokens.join(" ");
+}
+function newScramble() {
+  scrambleText = generateScramble();
+  $("scramble").textContent = scrambleText;
+}
+async function copyScramble() {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(scrambleText);
+    } else {
+      const area = document.createElement("textarea");
+      area.value = scrambleText;
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    setStatus("SCRAMBLE COPIED", "#22c55e");
+  } catch (_) { setStatus("COPY FAILED", "#ef4444"); }
+}
+
+function setMode(nextMode) {
+  if (running || inspecting || holding) return;
+  mode = nextMode;
+  $("coBtn").classList.toggle("active", mode === "CO");
+  $("eoBtn").classList.toggle("active", mode === "EO");
+  $("modeTitle").textContent = mode === "CO" ? "Corner Orientation" : "Edge Orientation";
+  $("statsTitle").textContent = mode + " Statistics";
+  resetTimer();
+  newScramble();
+  updateStats();
+}
+
+function startInspection() {
+  if (running || inspecting || holding) return;
+  inspectionPenalty = "NONE";
+  inspecting = true;
+  inspectionStart = performance.now();
+  $("inspectionBtn").disabled = true;
+  $("inspectionDisplay").style.color = "#a78bfa";
+  setStatus("INSPECTION", "#a78bfa");
+  inspectionInterval = setInterval(() => {
+    inspectionElapsed = (performance.now() - inspectionStart) / 1000;
+    const remaining = Math.max(0, 15 - inspectionElapsed);
+    if (inspectionElapsed > 17) {
+      inspectionPenalty = "DNF";
+      $("inspectionDisplay").textContent = "Inspection: DNF";
+      $("inspectionDisplay").style.color = "#ef4444";
+    } else if (inspectionElapsed > 15) {
+      inspectionPenalty = "+2";
+      $("inspectionDisplay").textContent = "Inspection: +2";
+      $("inspectionDisplay").style.color = "#f59e0b";
+    } else {
+      $("inspectionDisplay").textContent = "Inspection: " + remaining.toFixed(1) + "s";
+    }
+  }, 50);
+}
+function finishInspection() {
+  if (!inspecting) return;
+  inspectionElapsed = (performance.now() - inspectionStart) / 1000;
+  inspectionPenalty = inspectionElapsed > 17 ? "DNF" : inspectionElapsed > 15 ? "+2" : "NONE";
+  inspecting = false;
+  clearInterval(inspectionInterval);
+  $("inspectionBtn").disabled = false;
+  $("inspectionDisplay").textContent = inspectionPenalty === "NONE" ? "" : "Penalty: " + inspectionPenalty;
+}
+function startTimer() {
+  if (running) return;
+  if (inspecting) finishInspection();
+  running = true;
+  elapsed = 0;
+  startTime = performance.now();
+  $("timer").className = "timer";
+  setStatus("SOLVING", "#22c55e");
+  timerInterval = setInterval(() => {
+    elapsed = performance.now() - startTime;
+    $("timer").textContent = (elapsed / 1000).toFixed(2);
+  }, 10);
+}
+function stopTimer() {
+  if (!running) return;
+  running = false;
+  clearInterval(timerInterval);
+  elapsed = performance.now() - startTime;
+  const record = {
+    id: (Date.now() + Math.random()).toString(),
+    mode, time: elapsed / 1000,
+    penalty: inspectionPenalty,
+    scramble: scrambleText,
+    date: new Date().toISOString()
+  };
+  records.push(record);
+  saveRecords();
+  $("timer").textContent = (elapsed / 1000).toFixed(2);
+  setStatus(record.penalty === "DNF" ? "SOLVE COMPLETE · DNF" :
+    record.penalty === "+2" ? "SOLVE COMPLETE · +2" : "SOLVE COMPLETE", "#a78bfa");
+  inspectionPenalty = "NONE";
+  updateStats();
+  newScramble();
+}
+function resetTimer() {
+  clearInterval(timerInterval);
+  clearInterval(inspectionInterval);
+  clearTimeout(holdTimeout);
+  running = inspecting = holding = ready = false;
+  elapsed = inspectionElapsed = 0;
+  inspectionPenalty = "NONE";
+  $("timer").textContent = "0.00";
+  $("timer").className = "timer";
+  $("inspectionDisplay").textContent = "";
+  $("inspectionBtn").disabled = false;
+  setStatus("READY");
+}
+function timerButtonAction() {
+  if (running) { stopTimer(); return; }
+  if (inspecting) { startTimer(); return; }
+  startTimer();
+}
+function handleKeyDown(e) {
+  if (e.code !== "Space" || e.repeat) return;
+  if (["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
+  e.preventDefault();
+  if (running) { stopTimer(); return; }
+  if (inspecting) { startTimer(); return; }
+  if (holding) return;
+  holding = true;
+  ready = false;
+  $("timer").className = "timer holding";
+  setStatus("HOLD SPACE…", "#ef4444");
+  holdTimeout = setTimeout(() => {
+    if (holding) {
+      ready = true;
+      $("timer").className = "timer ready";
+      setStatus("RELEASE TO START", "#22c55e");
+    }
+  }, 300);
+}
+function handleKeyUp(e) {
+  if (e.code !== "Space" || !holding) return;
+  e.preventDefault();
+  clearTimeout(holdTimeout);
+  holding = false;
+  if (ready) startTimer();
+  else {
+    $("timer").className = "timer";
+    setStatus("READY");
+  }
+  ready = false;
+}
+function getResult(record) {
+  if (record.penalty === "DNF") return Infinity;
+  return record.time + (record.penalty === "+2" ? 2 : 0);
+}
+function averageOf(solves, n) {
+  if (solves.length < n) return "-";
+  const values = solves.slice(-n).map(getResult).sort((a,b) => a-b);
+  if (values.filter(v => !Number.isFinite(v)).length > 1) return "DNF";
+  values.shift();
+  values.pop();
+  const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return formatTime(avg);
+}
+function updateStats() {
+  const solves = records.filter(r => r.mode === mode);
+  const valid = solves.map(getResult).filter(Number.isFinite);
+  $("count").textContent = solves.length;
+  $("best").textContent = valid.length ? formatTime(Math.min(...valid)) : "-";
+  $("ao5").textContent = averageOf(solves, 5);
+  $("ao12").textContent = averageOf(solves, 12);
+  const history = $("history");
+  if (!solves.length) {
+    history.innerHTML = '<div class="empty">No solves yet.</div>';
+    return;
+  }
+  history.innerHTML = solves.slice().reverse().slice(0, 40).map((r, index) => {
+    const result = getResult(r);
+    const date = new Date(r.date).toLocaleString();
+    const safeScramble = String(r.scramble).replace(/[&<>"']/g, c =>
+      ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    return `<div class="history-item">
+      <div><strong>${solves.length - index}. ${formatTime(result)}</strong>
+      <small>${r.penalty === "NONE" ? "No penalty" : r.penalty} · ${date}</small>
+      <small>${safeScramble}</small></div>
+      <button type="button" data-delete="${r.id}">Delete</button>
+    </div>`;
+  }).join("");
+}
+function changePenalty(penalty) {
+  if (running || inspecting || holding) return;
+  const last = [...records].reverse().find(r => r.mode === mode);
+  if (!last) { setStatus("NO SOLVE TO EDIT"); return; }
+  last.penalty = penalty;
+  saveRecords();
+  updateStats();
+  setStatus("PENALTY UPDATED", "#a78bfa");
+}
+function deleteSolve(id) {
+  records = records.filter(r => String(r.id) !== id);
+  saveRecords();
+  updateStats();
+}
+function clearHistory() {
+  if (!confirm("Delete all " + mode + " solves from this browser?")) return;
+  records = records.filter(r => r.mode !== mode);
+  saveRecords();
+  updateStats();
+  resetTimer();
+}
+
+$("coBtn").addEventListener("click", () => setMode("CO"));
+$("eoBtn").addEventListener("click", () => setMode("EO"));
+$("newScrambleBtn").addEventListener("click", () => { if (!running && !inspecting) newScramble(); });
+$("copyBtn").addEventListener("click", copyScramble);
+$("inspectionBtn").addEventListener("click", startInspection);
+$("resetBtn").addEventListener("click", resetTimer);
+$("plusTwoBtn").addEventListener("click", () => changePenalty("+2"));
+$("dnfBtn").addEventListener("click", () => changePenalty("DNF"));
+$("clearPenaltyBtn").addEventListener("click", () => changePenalty("NONE"));
+$("clearHistoryBtn").addEventListener("click", clearHistory);
+$("history").addEventListener("click", e => {
+  const button = e.target.closest("[data-delete]");
+  if (button) deleteSolve(button.dataset.delete);
+});
+document.addEventListener("keydown", handleKeyDown);
+document.addEventListener("keyup", handleKeyUp);
+window.addEventListener("blur", () => {
+  if (holding && !running) {
+    clearTimeout(holdTimeout);
+    holding = ready = false;
+    $("timer").className = "timer";
+    setStatus("READY");
+  }
+});
+newScramble();
+updateStats();
+</script>
+</body>
+</html>
